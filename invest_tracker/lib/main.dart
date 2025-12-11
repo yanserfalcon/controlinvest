@@ -10,6 +10,9 @@ import 'widgets/transaction_form.dart';
 import 'widgets/dashboard_view.dart';
 import 'widgets/history_view.dart';
 import 'models/transaction.dart' as model;
+import 'dart:io';
+import 'package:permission_handler/permission_handler.dart';
+import 'services/backup_restore_service.dart'; // NUEVO
 
 // CAMBIO 1: Inicializar con locale 'pt_BR'
 void main() async {
@@ -19,6 +22,7 @@ void main() async {
     // Inicializar para Portugués (Brasil), compatible con Real Brasileño
     await initializeDateFormatting('pt_BR', null);
   } catch (e) {
+    // En caso de error, la app seguirá funcionando con la configuración por defecto
     print('Error al inicializar datos de localización: $e');
   }
 
@@ -52,6 +56,7 @@ class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
   List<model.Transaction> _transactions = [];
   bool _isLoading = true;
+  final BackupRestoreService _backupService = BackupRestoreService();
 
   model.TransactionType? _historyFilterType;
   DateTime? _historyFilterDate;
@@ -62,7 +67,8 @@ class _MainScreenState extends State<MainScreen> {
     _loadTransactions();
   }
 
-  void _loadTransactions() async {
+  // CORREGIDO: Declarar explícitamente Future<void>
+  Future<void> _loadTransactions() async {
     final transactions = await DatabaseHelper.instance.getAllTransactions();
     setState(() {
       _transactions = transactions;
@@ -100,9 +106,9 @@ class _MainScreenState extends State<MainScreen> {
     DateTime? date;
 
     if (dateKey.length == 7) {
-      date = DateTime.tryParse('${dateKey}-01');
+      date = DateTime.tryParse('$dateKey-01');
     } else if (dateKey.length == 4) {
-      date = DateTime.tryParse('${dateKey}-01-01');
+      date = DateTime.tryParse('$dateKey-01-01');
     }
 
     setState(() {
@@ -126,6 +132,172 @@ class _MainScreenState extends State<MainScreen> {
     } else if (index == 3) {
       _showTransactionForm(type: model.TransactionType.dividend);
     }
+  }
+
+  // CORREGIDO: Declarar explícitamente Future<void>
+  Future<void> _exportDatabase(BuildContext context) async {
+    // 1. Solicitar permiso de almacenamiento (útil para versiones antiguas de Android)
+    if (Platform.isAndroid) {
+      var status = await Permission.storage.request();
+      if (!status.isGranted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Permiso de almacenamiento denegado.'),
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Exportando base de datos...')),
+    );
+
+    final resultPath = await _backupService.exportDatabase();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
+      if (resultPath != null && !resultPath.startsWith('Error')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('¡Backup creado con éxito!'),
+            action: SnackBarAction(
+              label: 'Ver ruta',
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text('Ruta de Exportación'),
+                    content: Text('Guardado en: $resultPath'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('OK'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+        _loadTransactions();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Fallo al exportar: ${resultPath ?? 'Error desconocido'}',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  // CORREGIDO: Declarar explícitamente Future<void>
+  Future<void> _importDatabase(BuildContext context) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Importando base de datos...')),
+    );
+
+    final resultMessage = await _backupService.importDatabase(
+      // 1. Callback para cerrar DB: Usa el helper
+      onDbReplaced: () => DatabaseHelper.instance.closeDatabase(),
+      // 2. Callback para reabrir DB y recargar datos: Usa el método existente
+      onDbLoad: _loadTransactions,
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
+      if (resultMessage == "Selección de archivo cancelada.") {
+        return;
+      } else if (resultMessage != null && !resultMessage.startsWith('Error')) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(resultMessage)));
+        // La vista ya se recargó a través del callback onDbLoad
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(resultMessage ?? 'Fallo al importar.')),
+        );
+      }
+    }
+  }
+
+  // Diálogo para mostrar las opciones de Exportar/Importar
+  void _showBackupRestoreDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text("Copia de Seguridad y Restauración"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.download),
+                title: const Text('Exportar Base de Datos'),
+                subtitle: const Text(
+                  'Guarda una copia (.db) en la carpeta Descargas del teléfono.',
+                ),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _exportDatabase(context);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.upload),
+                title: const Text('Importar Base de Datos'),
+                subtitle: const Text(
+                  'Reemplaza la DB actual con un archivo de backup (.db).',
+                ),
+                onTap: () async {
+                  // Pedir confirmación antes de sobreescribir
+                  final bool? confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text("Confirmar Importación"),
+                      content: const Text(
+                        "¿Estás seguro de que quieres reemplazar la base de datos actual? Esta acción es irreversible.",
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text("Cancelar"),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text(
+                            "Importar",
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+
+                  if (confirm == true) {
+                    Navigator.of(context).pop(); // Cierra el primer diálogo
+                    await _importDatabase(context);
+                  }
+                },
+              ),
+            ],
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text("Cerrar"),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   List<Widget> get _widgetOptions => <Widget>[
@@ -162,7 +334,8 @@ class _MainScreenState extends State<MainScreen> {
             const Text('Mi Cartera'),
             // CAMBIO 3: Mostrar el total invertido
             Text(
-              ' ${currencyFormat.format(_totalInvested)}',
+              // Eliminado el espacio inicial, ya incluido en el format
+              currencyFormat.format(_totalInvested),
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.normal,
@@ -170,6 +343,15 @@ class _MainScreenState extends State<MainScreen> {
             ),
           ],
         ),
+
+        // NUEVO: Botón de configuración/backup
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: _showBackupRestoreDialog,
+            tooltip: 'Configuración y Backup',
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

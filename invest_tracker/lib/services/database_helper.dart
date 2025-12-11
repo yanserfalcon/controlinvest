@@ -8,6 +8,8 @@ import '../models/transaction.dart' as model;
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
   static Database? _database;
+  static const _databaseName = "investment_db.db";
+  static const _databaseVersion = 1;
 
   DatabaseHelper._privateConstructor();
 
@@ -18,9 +20,19 @@ class DatabaseHelper {
     return _database!;
   }
 
+// NUEVO MÉTODO: Cerrar la base de datos antes de importar
+  Future<void> closeDatabase() async {
+    if (_database != null) {
+      await _database!.close();
+      _database = null;
+    }
+  }
+
   // Inicializa la base de datos
   Future<Database> _initDatabase() async {
-    String path = join(await getDatabasesPath(), 'investments.db');
+    final databasePath = await getDatabasesPath();
+    final path = join(databasePath, _databaseName); // Usar join para seguridad
+   // String path = join(await getDatabasesPath(), 'investments.db');
     return await openDatabase(path, version: 1, onCreate: _onCreate);
   }
 

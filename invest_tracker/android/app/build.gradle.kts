@@ -7,9 +7,10 @@ plugins {
 
 android {
     namespace = "com.example.invest_tracker"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = flutter.compileSdkVersion // Mantenemos la versión de Flutter
     ndkVersion = flutter.ndkVersion
-
+    // Eliminamos la línea conflictiva 'compileSdkVersion = 34'
+    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -20,20 +21,19 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.invest_tracker"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        
+        // CORRECCIÓN CLAVE: Usamos la sintaxis de llamada a función para las SDKs
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
+        targetSdk = flutter.targetSdkVersion 
+        
+        // También usamos la sintaxis de llamada a función para las versiones
+        versionCode = flutter.versionCode.toInt()
         versionName = flutter.versionName
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
         }
     }

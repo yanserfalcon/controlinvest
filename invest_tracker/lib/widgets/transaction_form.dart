@@ -214,7 +214,7 @@ class _TransactionFormState extends State<TransactionForm> {
                 decoration: const InputDecoration(
                   labelText: 'Tipo de Transacción',
                 ),
-                value: _selectedType,
+                initialValue: _selectedType,
                 items: model.TransactionType.values.map((type) {
                   return DropdownMenuItem(
                     value: type,
