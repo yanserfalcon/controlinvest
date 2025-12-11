@@ -20,11 +20,13 @@ class DatabaseHelper {
     return _database!;
   }
 
-// NUEVO MÉTODO: Cerrar la base de datos antes de importar
+  // --- AGREGA O MODIFICA ESTA FUNCIÓN ---
   Future<void> closeDatabase() async {
-    if (_database != null) {
-      await _database!.close();
-      _database = null;
+    final db = _database;
+    if (db != null) {
+      await db.close();
+      _database = null; // ¡ESTO ES CRÍTICO!
+      // Si no hacemos esto null, la app cree que sigue abierta y falla al reabrir.
     }
   }
 
@@ -32,7 +34,7 @@ class DatabaseHelper {
   Future<Database> _initDatabase() async {
     final databasePath = await getDatabasesPath();
     final path = join(databasePath, _databaseName); // Usar join para seguridad
-   // String path = join(await getDatabasesPath(), 'investments.db');
+    // String path = join(await getDatabasesPath(), 'investments.db');
     return await openDatabase(path, version: 1, onCreate: _onCreate);
   }
 

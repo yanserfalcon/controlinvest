@@ -134,63 +134,66 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // CORREGIDO: Declarar explícitamente Future<void>
+  // lib/main.dart
+
   Future<void> _exportDatabase(BuildContext context) async {
-    // 1. Solicitar permiso de almacenamiento (útil para versiones antiguas de Android)
+    // --- LÓGICA DE PERMISOS ACTUALIZADA ---
+    // Solo pedimos permiso si NO es Android 13+ (SDK 33+).
+    // Como saber el SDK exacto es difícil sin plugins extra,
+    // intentamos pedirlo. Si el sistema dice que está "restringido" o "denegado permanentemente"
+    // (que es lo que pasa en Android 13+), asumimos que podemos escribir en Descargas y continuamos.
+
     if (Platform.isAndroid) {
-      var status = await Permission.storage.request();
+      // Verificamos el estado actual sin pedirlo primero
+      var status = await Permission.storage.status;
+
+      // Si no está concedido, intentamos pedirlo
       if (!status.isGranted) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Permiso de almacenamiento denegado.'),
-            ),
-          );
-        }
-        return;
+        // En Android 13+, request() puede devolver permanentlyDenied inmediatamente.
+        // No bloqueamos el flujo por esto.
+        final result = await Permission.storage.request();
+
+        // Si es Android 11/12/13+, escribir en Downloads PÚBLICOS no requiere permiso.
+        // Solo bloqueamos si el usuario denegó explícitamente en versiones viejas (Android 9 o menos).
+        // Para simplificar: IGNORAMOS el resultado del permiso y PROBAMOS escribir.
+        // Si falla la escritura, el bloque try-catch del servicio lo capturará.
       }
     }
+    // --------------------------------------
+
+    if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Exportando base de datos...')),
     );
 
+    // Llamamos al servicio. Si falla por permisos reales, devolverá el mensaje de error.
     final resultPath = await _backupService.exportDatabase();
 
     if (mounted) {
       ScaffoldMessenger.of(context).removeCurrentSnackBar();
+
       if (resultPath != null && !resultPath.startsWith('Error')) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('¡Backup creado con éxito!'),
+            content: const Text('¡Backup guardado en Descargas!'),
+            backgroundColor: Colors.green, // Visualmente mejor
             action: SnackBarAction(
-              label: 'Ver ruta',
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (_) => AlertDialog(
-                    title: const Text('Ruta de Exportación'),
-                    content: Text('Guardado en: $resultPath'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('OK'),
-                      ),
-                    ],
-                  ),
-                );
-              },
+              label: 'OK',
+              textColor: Colors.white,
+              onPressed: () {},
             ),
-            duration: const Duration(seconds: 8),
+            duration: const Duration(seconds: 5),
           ),
         );
-        _loadTransactions();
+        // Opcional: Recargar transacciones si fuera necesario
+        // _loadTransactions();
       } else {
+        // Aquí caeremos si realmente falló la escritura
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Fallo al exportar: ${resultPath ?? 'Error desconocido'}',
-            ),
+            content: Text('Fallo: ${resultPath ?? 'Error desconocido'}'),
+            backgroundColor: Colors.red,
           ),
         );
       }
