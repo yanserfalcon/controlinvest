@@ -1,15 +1,27 @@
-// lib/main.dart
+// lib/main.dart (CONTENIDO COMPLETO ACTUALIZADO)
 
 import 'package:flutter/material.dart';
+// Importar para localización y el método initializeDateFormatting
+import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 import 'services/database_helper.dart';
 import 'widgets/transaction_form.dart';
 import 'widgets/dashboard_view.dart';
 import 'widgets/history_view.dart';
-import 'models/transaction.dart' as model; // <-- Importación con prefijo
+import 'models/transaction.dart' as model;
 
-void main() {
+// CAMBIO 1: Inicializar con locale 'pt_BR'
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  try {
+    // Inicializar para Portugués (Brasil), compatible con Real Brasileño
+    await initializeDateFormatting('pt_BR', null);
+  } catch (e) {
+    print('Error al inicializar datos de localización: $e');
+  }
+
   runApp(const InvestmentTrackerApp());
 }
 
@@ -38,9 +50,11 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
-  // CORREGIDO: Usar model.Transaction
   List<model.Transaction> _transactions = [];
   bool _isLoading = true;
+
+  model.TransactionType? _historyFilterType;
+  DateTime? _historyFilterDate;
 
   @override
   void initState() {
@@ -48,9 +62,7 @@ class _MainScreenState extends State<MainScreen> {
     _loadTransactions();
   }
 
-  // Carga todas las transacciones desde la base de datos
   void _loadTransactions() async {
-    // database_helper.getAllTransactions ya devuelve List<model.Transaction>
     final transactions = await DatabaseHelper.instance.getAllTransactions();
     setState(() {
       _transactions = transactions;
@@ -58,39 +70,73 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
-  // Muestra el formulario para añadir/editar
+  // NUEVO: Función para calcular el total invertido
+  double get _totalInvested {
+    return _transactions
+        .where((t) => t.type == model.TransactionType.purchase)
+        .fold(0.0, (sum, t) => sum + t.totalValue);
+  }
+
   void _showTransactionForm({
-    // CORREGIDO: Usar model.Transaction y model.TransactionType
     model.Transaction? transaction,
     model.TransactionType? type,
   }) async {
     final result = await showModalBottomSheet(
       context: context,
-      isScrollControlled: true, // Para que el teclado no tape el formulario
+      isScrollControlled: true,
       builder: (_) =>
           TransactionForm(transactionToEdit: transaction, initialType: type),
     );
 
     if (result == true) {
-      _loadTransactions(); // Recargar si se realizó una operación exitosa
+      _loadTransactions();
     }
   }
 
-  void _onItemTapped(int index) {
+  void _goToHistoryWithFilters({
+    required model.TransactionType type,
+    required String dateKey,
+  }) {
+    DateTime? date;
+
+    if (dateKey.length == 7) {
+      date = DateTime.tryParse('${dateKey}-01');
+    } else if (dateKey.length == 4) {
+      date = DateTime.tryParse('${dateKey}-01-01');
+    }
+
     setState(() {
-      _selectedIndex = index;
+      _historyFilterType = type;
+      _historyFilterDate = date;
+      _selectedIndex = 1;
     });
   }
 
-  // Contenido de la pantalla principal
+  void _onItemTapped(int index) {
+    if (index == 0 || index == 1) {
+      setState(() {
+        _selectedIndex = index;
+        if (index == 1) {
+          _historyFilterType = null;
+          _historyFilterDate = null;
+        }
+      });
+    } else if (index == 2) {
+      _showTransactionForm(type: model.TransactionType.purchase);
+    } else if (index == 3) {
+      _showTransactionForm(type: model.TransactionType.dividend);
+    }
+  }
+
   List<Widget> get _widgetOptions => <Widget>[
-    // CORREGIDO: Pasar la lista de transacciones corregida
-    DashboardView(transactions: _transactions),
+    DashboardView(
+      transactions: _transactions,
+      onDividendTap: _goToHistoryWithFilters,
+    ),
     HistoryView(
       transactions: _transactions,
-      // ¡CORRECCIÓN CLAVE! Adaptar el argumento posicional (tx)
-      // que HistoryView pasa, al argumento nombrado (transaction) que
-      // _showTransactionForm espera.
+      initialFilterType: _historyFilterType,
+      initialFilterDate: _historyFilterDate,
       onEdit: (tx) => _showTransactionForm(transaction: tx),
       onDelete: (int id) async {
         await DatabaseHelper.instance.deleteTransaction(id);
@@ -101,38 +147,36 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // CAMBIO 2: Formato de moneda para R$ (Real Brasileño)
+    final currencyFormat = NumberFormat.currency(
+      locale: 'pt_BR',
+      symbol: 'R\$',
+      decimalDigits: 2,
+    );
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Mi Cartera')),
+      appBar: AppBar(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Mi Cartera'),
+            // CAMBIO 3: Mostrar el total invertido
+            Text(
+              ' ${currencyFormat.format(_totalInvested)}',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _widgetOptions.elementAt(_selectedIndex),
 
-      // Botón flotante para añadir nuevas transacciones
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: <Widget>[
-          FloatingActionButton.extended(
-            heroTag: 'addPurchase',
-            label: const Text('Compra'),
-            icon: const Icon(Icons.shopping_cart),
-            // CORREGIDO: Usar model.TransactionType.purchase
-            onPressed: () =>
-                _showTransactionForm(type: model.TransactionType.purchase),
-          ),
-          const SizedBox(height: 10),
-          FloatingActionButton.extended(
-            heroTag: 'addDividend',
-            label: const Text('Provento'),
-            icon: const Icon(Icons.attach_money),
-            // CORREGIDO: Usar model.TransactionType.dividend
-            onPressed: () =>
-                _showTransactionForm(type: model.TransactionType.dividend),
-          ),
-        ],
-      ),
-
-      // Barra de navegación inferior
       bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(
             icon: Icon(Icons.dashboard),
@@ -141,6 +185,14 @@ class _MainScreenState extends State<MainScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.history),
             label: 'Historial',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.shopping_cart),
+            label: 'Compra',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.attach_money),
+            label: 'Provento',
           ),
         ],
         currentIndex: _selectedIndex,

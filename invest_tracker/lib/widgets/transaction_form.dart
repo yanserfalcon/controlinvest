@@ -2,14 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-// CORREGIDO: Usar el prefijo 'model' para evitar conflictos
 import '../models/transaction.dart' as model;
 import '../services/database_helper.dart';
 
 class TransactionForm extends StatefulWidget {
-  // CORREGIDO: Usar model.Transaction
   final model.Transaction? transactionToEdit;
-  // CORREGIDO: Usar model.TransactionType
   final model.TransactionType? initialType;
 
   const TransactionForm({super.key, this.transactionToEdit, this.initialType});
@@ -20,14 +17,12 @@ class TransactionForm extends StatefulWidget {
 
 class _TransactionFormState extends State<TransactionForm> {
   final _formKey = GlobalKey<FormState>();
-  // CORREGIDO: Usar model.TransactionType
   late model.TransactionType _selectedType;
   late String _assetName;
   late double _price;
   late double _quantity;
   late DateTime _selectedDate;
 
-  // Controladores para los campos de texto
   final TextEditingController _assetController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
@@ -39,233 +34,247 @@ class _TransactionFormState extends State<TransactionForm> {
   @override
   void initState() {
     super.initState();
-    // CORREGIDO: Usar model.TransactionType
-    _selectedType =
-        widget.transactionToEdit?.type ??
-        widget.initialType ??
-        model.TransactionType.purchase;
+    _loadUniqueAssets();
     _isEditing = widget.transactionToEdit != null;
-    _loadAssetNames();
 
     if (_isEditing) {
       final tx = widget.transactionToEdit!;
-      _assetController.text = tx.assetName;
-      _priceController.text = tx.price.toStringAsFixed(2);
-      _quantityController.text = tx.quantity.toString();
-      _totalValueController.text = tx.totalValue.toStringAsFixed(2);
+      _selectedType = tx.type;
       _assetName = tx.assetName;
       _price = tx.price;
       _quantity = tx.quantity;
       _selectedDate = tx.date;
+
+      _assetController.text = _assetName;
+      _priceController.text = _price.toStringAsFixed(4);
+      _quantityController.text = _quantity.toStringAsFixed(4);
+      _totalValueController.text = tx.totalValue.toStringAsFixed(2);
     } else {
-      _selectedDate = DateTime.now();
+      _selectedType = widget.initialType ?? model.TransactionType.purchase;
+      _assetName = '';
       _price = 0.0;
       _quantity = 0.0;
+      _selectedDate = DateTime.now();
+      _totalValueController.text = '';
     }
 
-    // Escuchar cambios para calcular el valor total
+    // Escuchar cambios para calcular el valor total automáticamente (solo Compra)
     _priceController.addListener(_calculateTotal);
     _quantityController.addListener(_calculateTotal);
+    // Escuchar cambios para actualizar Precio y Cantidad si se modifica el Total (solo Compra)
+    _totalValueController.addListener(_calculatePriceAndQuantity);
+  }
+
+  void _loadUniqueAssets() async {
+    final assets = await DatabaseHelper.instance.getUniqueAssetNames();
+    setState(() {
+      _uniqueAssetNames = assets;
+    });
   }
 
   @override
   void dispose() {
     _priceController.removeListener(_calculateTotal);
     _quantityController.removeListener(_calculateTotal);
+    _totalValueController.removeListener(_calculatePriceAndQuantity);
+    _assetController.dispose();
     _priceController.dispose();
     _quantityController.dispose();
-    _assetController.dispose();
     _totalValueController.dispose();
     super.dispose();
   }
 
-  // Carga los nombres de activos existentes para el autocompletado
-  void _loadAssetNames() async {
-    _uniqueAssetNames = await DatabaseHelper.instance.getUniqueAssetNames();
-    setState(() {}); // Actualiza la UI para el autocompletado
-  }
-
-  // Calcula el valor total (solo para COMPRAS)
   void _calculateTotal() {
-    // CORREGIDO: Usar model.TransactionType.purchase
     if (_selectedType == model.TransactionType.purchase) {
-      double price = double.tryParse(_priceController.text) ?? 0.0;
-      double quantity = double.tryParse(_quantityController.text) ?? 0.0;
-      double total = price * quantity;
+      final price = double.tryParse(_priceController.text) ?? 0.0;
+      final quantity = double.tryParse(_quantityController.text) ?? 0.0;
 
-      // Actualiza el controlador sin causar un loop, si no está siendo editado por el usuario
-      if (_totalValueController.text != total.toStringAsFixed(2)) {
+      // Desactivar el listener de _totalValueController temporalmente para evitar loops
+      _totalValueController.removeListener(_calculatePriceAndQuantity);
+
+      final total = price * quantity;
+      // Actualizar solo si el cálculo da un resultado válido y no es el valor actual
+      if (total >= 0 && total != double.tryParse(_totalValueController.text)) {
         _totalValueController.text = total.toStringAsFixed(2);
       }
-      _price = price;
-      _quantity = quantity;
+
+      _totalValueController.addListener(_calculatePriceAndQuantity);
     }
   }
 
-  // Abre el selector de fecha
+  void _calculatePriceAndQuantity() {
+    // Esta lógica solo aplica para COMPRA
+    if (_selectedType == model.TransactionType.purchase) {
+      final totalValue = double.tryParse(_totalValueController.text) ?? 0.0;
+      final quantity = double.tryParse(_quantityController.text) ?? 0.0;
+
+      // Si el usuario modifica el Total y hay Cantidad, calcular el Precio.
+      if (totalValue > 0 && quantity > 0) {
+        final price = totalValue / quantity;
+        // Desactivar el listener de priceController temporalmente para evitar loops
+        _priceController.removeListener(_calculateTotal);
+        _priceController.text = price.toStringAsFixed(4);
+        _priceController.addListener(_calculateTotal);
+      }
+    }
+  }
+
   Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
+    final DateTime? pickedDate = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime(2000),
       lastDate: DateTime.now(),
     );
-    if (picked != null && picked != _selectedDate) {
-      // También permite seleccionar la hora para mayor precisión
-      final TimeOfDay? timePicked = await showTimePicker(
+    if (pickedDate != null && pickedDate != _selectedDate) {
+      final TimeOfDay? pickedTime = await showTimePicker(
         context: context,
         initialTime: TimeOfDay.fromDateTime(_selectedDate),
       );
-      if (timePicked != null) {
+      if (pickedTime != null) {
         setState(() {
           _selectedDate = DateTime(
-            picked.year,
-            picked.month,
-            picked.day,
-            timePicked.hour,
-            timePicked.minute,
+            pickedDate.year,
+            pickedDate.month,
+            pickedDate.day,
+            pickedTime.hour,
+            pickedTime.minute,
           );
-        });
-      } else {
-        setState(() {
-          _selectedDate = picked;
         });
       }
     }
   }
 
-  // Guarda/Actualiza la transacción
   void _saveTransaction() async {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
 
-      // CORREGIDO: Usar model.Transaction y model.TransactionType
-      final newTransaction = model.Transaction(
+      final totalValue = double.parse(_totalValueController.text);
+
+      // Si es Provento, Cantidad y Precio no son relevantes, se fijan a 0.
+      final quantity = _selectedType == model.TransactionType.dividend
+          ? 0.0
+          : (double.tryParse(_quantityController.text) ?? 0.0);
+      final price = _selectedType == model.TransactionType.dividend
+          ? 0.0
+          : (double.tryParse(_priceController.text) ?? 0.0);
+
+      final transaction = model.Transaction(
         id: widget.transactionToEdit?.id,
-        assetName: _assetName.toUpperCase().trim(),
         type: _selectedType,
-        price:
-            _selectedType ==
-                model
-                    .TransactionType
-                    .purchase // <-- CORREGIDO
-            ? _price
-            : double.tryParse(_priceController.text)!,
-        quantity:
-            _selectedType ==
-                model
-                    .TransactionType
-                    .purchase // <-- CORREGIDO
-            ? _quantity
-            : 1.0,
-        totalValue: double.tryParse(_totalValueController.text)!,
+        assetName: _assetController.text
+            .toUpperCase(), // Asegurar mayúsculas en DB
+        price: price,
+        quantity: quantity,
+        totalValue: totalValue,
         date: _selectedDate,
       );
 
       if (_isEditing) {
-        await DatabaseHelper.instance.updateTransaction(newTransaction);
+        await DatabaseHelper.instance.updateTransaction(transaction);
       } else {
-        await DatabaseHelper.instance.insertTransaction(newTransaction);
+        await DatabaseHelper.instance.insertTransaction(transaction);
       }
 
-      // Corrección de "Don't use 'BuildContext' across async gaps"
-      if (mounted) Navigator.pop(context, true);
+      Navigator.of(context).pop(true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // CORREGIDO: El título ahora usa el prefijo
-    final title = _isEditing
-        ? 'Editar Transacción'
-        : 'Nueva ${_selectedType == model.TransactionType.purchase ? 'Compra' : 'Provento'}';
+    // Determinar si los campos de Cantidad y Precio deben mostrarse
+    final showPriceAndQuantity =
+        _selectedType == model.TransactionType.purchase;
 
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-        top: 20,
-        left: 20,
-        right: 20,
-      ),
-      child: SingleChildScrollView(
+    return SingleChildScrollView(
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          top: 20,
+          left: 20,
+          right: 20,
+        ),
         child: Form(
           key: _formKey,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              // Título
-              Text(title, style: Theme.of(context).textTheme.headlineMedium),
+              Text(
+                _isEditing ? 'Editar Transacción' : 'Nueva Transacción',
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Selector de Tipo de Transacción
+              DropdownButtonFormField<model.TransactionType>(
+                decoration: const InputDecoration(
+                  labelText: 'Tipo de Transacción',
+                ),
+                value: _selectedType,
+                items: model.TransactionType.values.map((type) {
+                  return DropdownMenuItem(
+                    value: type,
+                    child: Text(
+                      type == model.TransactionType.purchase
+                          ? 'Compra'
+                          : 'Provento',
+                    ),
+                  );
+                }).toList(),
+                onChanged: (model.TransactionType? newValue) {
+                  if (newValue != null) {
+                    setState(() {
+                      _selectedType = newValue;
+                      // Limpiar campos relacionados al cambiar de tipo
+                      _priceController.text = '';
+                      _quantityController.text = '';
+                      _totalValueController.text = '';
+                    });
+                  }
+                },
+              ),
               const SizedBox(height: 10),
 
-              // Selector de Tipo de Transacción (solo si no estamos editando o tipo inicial no está definido)
-              if (!_isEditing)
-                // CORREGIDO: Usar model.TransactionType
-                DropdownButtonFormField<model.TransactionType>(
-                  value: _selectedType,
-                  decoration: const InputDecoration(labelText: 'Tipo'),
-                  items: const [
-                    // CORREGIDO: Usar model.TransactionType
-                    DropdownMenuItem(
-                      value: model.TransactionType.purchase,
-                      child: Text('Compra'),
-                    ),
-                    DropdownMenuItem(
-                      value: model.TransactionType.dividend,
-                      child: Text('Provento/Dividendo'),
-                    ),
-                  ],
-                  // CORREGIDO: Usar model.TransactionType
-                  onChanged: (model.TransactionType? newValue) {
-                    setState(() {
-                      _selectedType = newValue!;
-                      // Limpiar campos si el tipo cambia de compra a provento
-                      if (_selectedType == model.TransactionType.dividend) {
-                        // <-- CORREGIDO
-                        _priceController.clear();
-                        _quantityController.clear();
-                        _totalValueController.clear();
-                      }
-                    });
-                  },
-                ),
-              const SizedBox(height: 15),
-
-              // Campo de Nombre del Activo (con autocompletar)
+              // --- CAMPO DE NOMBRE DEL ACTIVO CON AUTOCOMPLETADO Y MAYÚSCULAS ---
               Autocomplete<String>(
-                // ... (el resto de Autocomplete no necesita cambios de prefijo)
+                // Suministra la lista de activos únicos
                 optionsBuilder: (TextEditingValue textEditingValue) {
                   if (textEditingValue.text.isEmpty) {
                     return const Iterable<String>.empty();
                   }
+                  // Filtra las opciones, comparando en mayúsculas
                   return _uniqueAssetNames.where((String option) {
-                    return option.toLowerCase().contains(
-                      textEditingValue.text.toLowerCase(),
-                    );
+                    return option.contains(textEditingValue.text.toUpperCase());
                   });
                 },
-
-                // CORREGIDO: Usar model.Transaction
-                initialValue: _isEditing
-                    ? TextEditingValue(
-                        text: widget.transactionToEdit!.assetName,
-                      )
-                    : null,
+                // Al seleccionar, se actualiza el controlador
                 onSelected: (String selection) {
-                  _assetName = selection;
+                  _assetController.text = selection;
                 },
                 fieldViewBuilder:
-                    (context, controller, focusNode, onFieldSubmitted) {
-                      _assetController.text = controller.text;
+                    (
+                      BuildContext context,
+                      TextEditingController fieldTextEditingController,
+                      FocusNode fieldFocusNode,
+                      VoidCallback onFieldSubmitted,
+                    ) {
+                      // Sincronizar el controlador local con el controlador del Autocomplete
+                      _assetController.text = fieldTextEditingController.text;
+
                       return TextFormField(
-                        controller: controller,
-                        focusNode: focusNode,
-                        // CORREGIDO: Usar model.TransactionType
-                        decoration: InputDecoration(
-                          labelText:
-                              _selectedType == model.TransactionType.purchase
-                              ? 'Nombre del Activo (Acción/FII)'
-                              : 'Activo que pagó el Provento',
+                        controller: fieldTextEditingController,
+                        focusNode: fieldFocusNode,
+                        onFieldSubmitted: (value) {
+                          onFieldSubmitted();
+                        },
+                        // Asegura que el texto ingresado sea mayúsculas
+                        textCapitalization: TextCapitalization.characters,
+                        decoration: const InputDecoration(
+                          labelText: 'Ticker (Ej: AAPL)',
                         ),
                         validator: (value) {
                           if (value == null || value.isEmpty) {
@@ -273,63 +282,75 @@ class _TransactionFormState extends State<TransactionForm> {
                           }
                           return null;
                         },
-                        onChanged: (value) => _assetName = value,
+                        // onSaved se ejecuta al final
                         onSaved: (value) => _assetName = value!,
                       );
                     },
               ),
-              const SizedBox(height: 15),
+              const SizedBox(height: 10),
 
-              // Campo de Precio Unitario / Monto del Provento
-              TextFormField(
-                controller: _priceController,
-                keyboardType: TextInputType.number,
-                // CORREGIDO: Usar model.TransactionType
-                decoration: InputDecoration(
-                  labelText: _selectedType == model.TransactionType.purchase
-                      ? 'Precio Unitario'
-                      : 'Monto del Provento (\$)',
+              // --- CAMPOS CONDICIONALES (Precio y Cantidad) ---
+              if (showPriceAndQuantity)
+                Row(
+                  children: [
+                    // Campo Precio
+                    Expanded(
+                      child: TextFormField(
+                        controller: _priceController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Precio por Unidad (R\$)',
+                        ),
+                        validator: (value) {
+                          if (value == null ||
+                              double.tryParse(value) == null ||
+                              double.parse(value) < 0) {
+                            return 'Introduce un precio válido';
+                          }
+                          return null;
+                        },
+                        onSaved: (value) => _price = double.parse(value!),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    // Campo Cantidad
+                    Expanded(
+                      child: TextFormField(
+                        controller: _quantityController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Cantidad',
+                        ),
+                        validator: (value) {
+                          if (value == null ||
+                              double.tryParse(value) == null ||
+                              double.parse(value) <= 0) {
+                            return 'Introduce una cantidad positiva';
+                          }
+                          return null;
+                        },
+                        onSaved: (value) => _quantity = double.parse(value!),
+                      ),
+                    ),
+                  ],
                 ),
-                validator: (value) {
-                  if (value == null ||
-                      double.tryParse(value) == null ||
-                      double.parse(value) <= 0) {
-                    return 'Introduce un valor positivo';
-                  }
-                  return null;
-                },
-                onSaved: (value) => _price = double.parse(value!),
-              ),
-              const SizedBox(height: 15),
+              const SizedBox(height: 10),
 
-              // Campo de Cantidad (solo para Compras)
-              // CORREGIDO: Usar model.TransactionType
-              if (_selectedType == model.TransactionType.purchase)
-                TextFormField(
-                  controller: _quantityController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Cantidad'),
-                  validator: (value) {
-                    if (value == null ||
-                        double.tryParse(value) == null ||
-                        double.parse(value) <= 0) {
-                      return 'Introduce una cantidad válida';
-                    }
-                    return null;
-                  },
-                  onSaved: (value) => _quantity = double.parse(value!),
-                ),
-              const SizedBox(height: 15),
-
-              // Campo de Valor Total (Editable para provento, calculado para compra)
+              // --- Campo Valor Total (Único para Proventos, Recalculado para Compra) ---
               TextFormField(
                 controller: _totalValueController,
                 keyboardType: TextInputType.number,
-                // CORREGIDO: Usar model.TransactionType
-                readOnly: _selectedType == model.TransactionType.purchase,
-                decoration: const InputDecoration(
-                  labelText: 'Valor Total (\$)',
+                // Etiqueta cambia según el tipo de transacción
+                decoration: InputDecoration(
+                  labelText: showPriceAndQuantity
+                      ? 'Valor Total (Calculado)'
+                      : 'Monto del Provento (R\$)',
+                  // Si es compra, el campo es solo lectura (calculado)
+                  suffixIcon: showPriceAndQuantity
+                      ? const Icon(Icons.calculate, color: Colors.blue)
+                      : null,
                 ),
+                readOnly: showPriceAndQuantity,
                 validator: (value) {
                   if (value == null ||
                       double.tryParse(value) == null ||
@@ -338,7 +359,7 @@ class _TransactionFormState extends State<TransactionForm> {
                   }
                   return null;
                 },
-                onSaved: (value) => {}, // Ya guardado en _calculateTotal/precio
+                onSaved: (value) => {},
               ),
               const SizedBox(height: 20),
 

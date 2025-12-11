@@ -1,5 +1,5 @@
 name: invest_tracker
-description: "A new Flutter project."
+description: "A simple app to view your investments by Yanser."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.1+1
 
 environment:
   sdk: ^3.10.3
@@ -35,7 +35,15 @@ dependencies:
   intl: ^0.20.2 
   fl_chart: ^1.1.1 
   path: ^1.8.3 # <--- ¡Asegúrate de incluirlo!
-
+  flutter_launcher_icons: "^0.13.1"
+ 
+flutter_launcher_icons:
+  # Indica si deseas que se genere el ícono para Android
+  android: true 
+  # Indica si deseas que se genere el ícono para iOS
+  ios: false # Puedes poner true si planeas publicar en iOS
+  # Ruta de tu archivo de ícono original
+  image_path: "assets/app_icon.png"
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8

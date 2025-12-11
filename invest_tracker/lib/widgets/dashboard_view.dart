@@ -10,8 +10,15 @@ import '../utils/calculations.dart';
 
 class DashboardView extends StatefulWidget {
   final List<model.Transaction> transactions;
+  // NUEVO: Callback para navegar al historial con filtro
+  final Function({required model.TransactionType type, required String dateKey})
+  onDividendTap;
 
-  const DashboardView({super.key, required this.transactions});
+  const DashboardView({
+    super.key,
+    required this.transactions,
+    required this.onDividendTap,
+  });
 
   @override
   State<DashboardView> createState() => _DashboardViewState();
@@ -68,12 +75,28 @@ class _DashboardViewState extends State<DashboardView> {
 
     setState(() {
       _assetSummaries = calculateAssetSummary(widget.transactions);
-      // Usamos la misma lógica de cálculo, pero ahora para mostrar en lista
       _dividendData = _groupBy == 'month'
           ? calculateMonthlyDividends(widget.transactions, _selectedYear)
           : calculateYearlyDividends(widget.transactions);
     });
   }
+
+  // Mapeo de abreviaturas de mes en español a número (necesario para el deep-link)
+  // Asumiendo que `calculateMonthlyDividends` utiliza abreviaturas localizadas.
+  final _monthMap = {
+    'ene': '01',
+    'feb': '02',
+    'mar': '03',
+    'abr': '04',
+    'may': '05',
+    'jun': '06',
+    'jul': '07',
+    'ago': '08',
+    'sep': '09',
+    'oct': '10',
+    'nov': '11',
+    'dic': '12',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -83,8 +106,12 @@ class _DashboardViewState extends State<DashboardView> {
       );
     }
 
-    final currencyFormat = NumberFormat.currency(locale: 'es_ES', symbol: '\$');
-
+    // final currencyFormat = NumberFormat.currency(locale: 'es_ES', symbol: '\$');
+    final currencyFormat = NumberFormat.currency(
+      locale: 'pt_BR',
+      symbol: 'R\$',
+      decimalDigits: 2,
+    );
     // Filtramos para mostrar solo los meses/años que tienen proventos (> 0)
     final dividendEntries = _dividendData.entries
         .where((entry) => entry.value > 0)
@@ -122,25 +149,25 @@ class _DashboardViewState extends State<DashboardView> {
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 subtitle: Text(
-                  'Posición: ${currencyFormat.format(summary.currentValue)} - '
-                  'Cantidad: ${summary.quantity.toStringAsFixed(0)}',
+                  ' ${currencyFormat.format(summary.currentValue)} - '
+                  'Cotas: ${summary.quantity.toStringAsFixed(0)}',
                 ),
                 trailing: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      'Medio: ${currencyFormat.format(summary.averagePrice)}',
+                      'Precio Medio: ${currencyFormat.format(summary.averagePrice)}',
                       style: const TextStyle(fontSize: 12),
                     ),
-                    Text(
+                    /* Text(
                       'Valorización: ${currencyFormat.format(valorization)}',
                       style: TextStyle(
                         color: isPositive ? Colors.green : Colors.red,
                         fontWeight: FontWeight.bold,
                         fontSize: 12,
                       ),
-                    ),
+                    ), */
                   ],
                 ),
               ),
@@ -240,10 +267,33 @@ class _DashboardViewState extends State<DashboardView> {
             )
           else
             ...dividendEntries.map((entry) {
+              final String dateKey = entry.key; // Ej: 'Ene' o '2025'
+              String keyForHistory = dateKey;
+
+              if (_groupBy == 'month') {
+                // Convertir la abreviatura del mes a número ('01'...'12')
+                // y crear la clave 'YYYY-MM'
+                final monthNumber =
+                    _monthMap[dateKey.substring(0, 3).toLowerCase()];
+                if (monthNumber != null) {
+                  keyForHistory = '$_selectedYear-$monthNumber';
+                } else {
+                  // Fallback a solo el año si no se puede parsear el mes
+                  keyForHistory = _selectedYear.toString();
+                }
+              }
+
               return Card(
                 elevation: 1,
                 margin: const EdgeInsets.symmetric(vertical: 4),
                 child: ListTile(
+                  onTap: () {
+                    // LLAMAR AL DEEP-LINK
+                    widget.onDividendTap(
+                      type: model.TransactionType.dividend,
+                      dateKey: keyForHistory,
+                    );
+                  },
                   leading: CircleAvatar(
                     backgroundColor: Colors.teal[100],
                     child: const Icon(Icons.attach_money, color: Colors.teal),
@@ -252,13 +302,23 @@ class _DashboardViewState extends State<DashboardView> {
                     entry.key, // Nombre del Mes o el Año
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  trailing: Text(
-                    currencyFormat.format(entry.value),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.teal,
-                    ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        currencyFormat.format(entry.value),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.teal,
+                        ),
+                      ),
+                      const Icon(
+                        Icons.arrow_forward_ios,
+                        size: 16,
+                        color: Colors.grey,
+                      ),
+                    ],
                   ),
                 ),
               );
