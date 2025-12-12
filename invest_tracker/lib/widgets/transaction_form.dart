@@ -241,6 +241,9 @@ class _TransactionFormState extends State<TransactionForm> {
 
               // --- CAMPO DE NOMBRE DEL ACTIVO CON AUTOCOMPLETADO Y MAYÚSCULAS ---
               Autocomplete<String>(
+                // 1. AGREGA ESTA LÍNEA AQUÍ:
+                initialValue: TextEditingValue(text: _assetName),
+
                 // Suministra la lista de activos únicos
                 optionsBuilder: (TextEditingValue textEditingValue) {
                   if (textEditingValue.text.isEmpty) {
@@ -255,6 +258,7 @@ class _TransactionFormState extends State<TransactionForm> {
                 onSelected: (String selection) {
                   _assetController.text = selection;
                 },
+
                 fieldViewBuilder:
                     (
                       BuildContext context,
@@ -263,7 +267,9 @@ class _TransactionFormState extends State<TransactionForm> {
                       VoidCallback onFieldSubmitted,
                     ) {
                       // Sincronizar el controlador local con el controlador del Autocomplete
-                      _assetController.text = fieldTextEditingController.text;
+                      fieldTextEditingController.addListener(() {
+                        _assetController.text = fieldTextEditingController.text;
+                      });
 
                       return TextFormField(
                         controller: fieldTextEditingController,
@@ -282,6 +288,7 @@ class _TransactionFormState extends State<TransactionForm> {
                           }
                           return null;
                         },
+                        // onSaved se ejecuta al final
                         // onSaved se ejecuta al final
                         onSaved: (value) => _assetName = value!,
                       );

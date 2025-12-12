@@ -38,12 +38,6 @@ class BackupRestoreService {
         externalDir = await getApplicationDocumentsDirectory();
       }
 
-      // SOLUCIÓN AL ERROR "Receiver can be null":
-      // Verificamos que externalDir no sea null antes de usarlo
-      if (externalDir == null) {
-        return "Error: No se pudo localizar la carpeta de descargas.";
-      }
-
       // 3. Crear nombre de archivo con fecha
       final timestamp = DateTime.now()
           .toIso8601String()
